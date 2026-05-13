@@ -78,11 +78,47 @@ async function chamarModelo(id, messages, etiqueta, system) {
   }
 }
 
-const PROMPT_SINTESE = `Você é o agregador final de um painel de IAs. Você recebeu uma pergunta e as respostas independentes de cada modelo do painel.
+const PROMPT_CRITICA = `Você está em um painel de IAs trabalhando em conjunto para responder a uma pergunta.
 
-Sua tarefa: produzir a melhor resposta final possível combinando o que há de mais correto, preciso e bem fundamentado em cada uma. Incorpore o que cada modelo acertou, corrija o que estiver errado, resolva divergências com base no mérito técnico.
+Você já produziu uma resposta inicial. Agora vai ver as respostas dos outros modelos do painel.
 
-Responda como uma única resposta autoritativa e consolidada. Não diga "o modelo X afirmou" nem mencione o processo — apenas a resposta final, como se você fosse o único respondendo.`;
+Sua tarefa em duas partes:
+
+1. CRÍTICA: analise criticamente as respostas dos outros modelos e também a sua própria. Aponte:
+   - Erros factuais ou imprecisões
+   - Lacunas importantes
+   - Pontos onde você discorda e por quê
+   - Pontos onde os outros estão certos e você estava errado ou incompleto
+
+2. RESPOSTA REVISADA: depois de considerar tudo, produza sua resposta final revisada à pergunta original. Incorpore o que aprendeu, corrija seus próprios erros se for o caso, e mantenha sua posição onde tiver razão fundamentada para discordar.
+
+Formato obrigatório da sua saída — use exatamente estes marcadores, sem nada antes ou depois:
+
+[CRÍTICA]
+(sua análise crítica aqui)
+
+[RESPOSTA REVISADA]
+(sua resposta final à pergunta original aqui)`;
+
+const PROMPT_SINTESE = `Você é o agregador final de um painel de IAs que trabalhou em colaboração.
+
+Você recebeu a pergunta original, as respostas iniciais de cada modelo, as críticas que cada modelo fez após ver os demais, e as respostas revisadas após o debate.
+
+Sua tarefa: produzir a melhor resposta final possível. Onde houve convergência entre os modelos após o debate, esse é provavelmente o caminho mais sólido. Onde houver divergência persistente entre modelos competentes, decida pelo mérito técnico — ou sinalize honestamente a incerteza se for o caso.
+
+Responda como uma única resposta autoritativa e consolidada. Não diga "o modelo X afirmou" nem mencione o processo de debate — apenas a resposta final, como se você fosse o único respondendo.`;
+
+function parseCriticaERevisao(texto) {
+  const matchCritica = texto.match(/\[CRÍTICA\]([\s\S]*?)(?=\[RESPOSTA REVISADA\]|$)/i);
+  const matchRevisao = texto.match(/\[RESPOSTA REVISADA\]([\s\S]*)/i);
+  if (matchRevisao) {
+    return {
+      critica: matchCritica ? matchCritica[1].trim() : '',
+      resposta_revisada: matchRevisao[1].trim(),
+    };
+  }
+  return { critica: '', resposta_revisada: texto };
+}
 
 app.post('/chat', async (req, res) => {
   const { prompt, modelos: requestedIds, agregador: agregadorInput } = req.body ?? {};
@@ -113,18 +149,44 @@ app.post('/chat', async (req, res) => {
 
   const inicioTotal = Date.now();
 
-  const respostasIndividuais = await Promise.all(
-    ids.map((id) => chamarModelo(id, [{ role: 'user', content: prompt }], 'individual'))
+  log(C.magenta, '◆', `${C.bold}rodada 1:${C.reset} rascunhos independentes`);
+  const rascunhos = await Promise.all(
+    ids.map((id) => chamarModelo(id, [{ role: 'user', content: prompt }], 'rascunho'))
   );
 
-  const contexto = respostasIndividuais
-    .map((r) => `### ${r.label}\n${r.texto}`)
+  log(C.magenta, '◆', `${C.bold}rodada 2:${C.reset} crítica + revisão (cada modelo vê os outros)`);
+  const revisoesBrutas = await Promise.all(
+    ids.map((id, idx) => {
+      const outrasRespostas = rascunhos
+        .map((r, i) => (i === idx ? null : `### ${r.label}\n${r.texto}`))
+        .filter(Boolean)
+        .join('\n\n---\n\n');
+      const minhaResposta = `### Sua resposta inicial (${rascunhos[idx].label})\n${rascunhos[idx].texto}`;
+      const userMsg = `Pergunta original:\n${prompt}\n\n${minhaResposta}\n\n---\n\nRespostas dos outros modelos do painel:\n\n${outrasRespostas}\n\nProduza agora sua crítica e sua resposta revisada no formato indicado.`;
+      return chamarModelo(id, [{ role: 'user', content: userMsg }], 'revisão', PROMPT_CRITICA);
+    })
+  );
+
+  const revisoes = revisoesBrutas.map((r) => {
+    if (r.erro) return { ...r, critica: '', resposta_revisada: r.texto };
+    const { critica, resposta_revisada } = parseCriticaERevisao(r.texto);
+    return { ...r, critica, resposta_revisada };
+  });
+
+  log(C.magenta, '◆', `${C.bold}rodada 3:${C.reset} síntese final pelo agregador`);
+  const contextoSintese = revisoes
+    .map((r) => {
+      const partes = [`### ${r.label}`];
+      if (r.critica) partes.push(`Crítica que fez:\n${r.critica}`);
+      partes.push(`Resposta revisada:\n${r.resposta_revisada}`);
+      return partes.join('\n\n');
+    })
     .join('\n\n---\n\n');
 
   const messagesSintese = [
     {
       role: 'user',
-      content: `Pergunta:\n${prompt}\n\nRespostas independentes do painel:\n\n${contexto}\n\nProduza a resposta final consolidada agora.`,
+      content: `Pergunta original:\n${prompt}\n\nResultado do debate do painel:\n\n${contextoSintese}\n\nProduza agora a resposta final consolidada.`,
     },
   ];
 
@@ -137,18 +199,19 @@ app.post('/chat', async (req, res) => {
   }
 
   const msTotal = Date.now() - inicioTotal;
-  const falhas = respostasIndividuais.filter((r) => r.erro).length;
+  const falhas = [...rascunhos, ...revisoesBrutas].filter((r) => r.erro).length;
   const statusColor = falhas > 0 ? C.yellow : C.green;
   const statusIcon = falhas > 0 ? '⚠' : '✓';
   log(
     statusColor,
     statusIcon,
-    `${C.bold}/chat${C.reset} concluído em ${msTotal}ms${falhas > 0 ? ` (${falhas} modelo(s) falharam)` : ''}`
+    `${C.bold}/chat${C.reset} concluído em ${msTotal}ms${falhas > 0 ? ` (${falhas} chamada(s) falharam)` : ''}`
   );
 
   res.json({
     prompt,
-    respostas_individuais: respostasIndividuais,
+    rascunhos,
+    revisoes,
     resposta_conjunta: sintese.texto,
     agregador,
     ms_total: msTotal,
