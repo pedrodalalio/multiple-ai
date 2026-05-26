@@ -29,6 +29,16 @@ export const DEFAULT_MODEL_IDS = [
   'mistral-small',
 ];
 
+export const DEFAULT_AGGREGATOR_ID = 'llama-3.3-70b';
+
+// Modelo único usado quando o roteador decide "single_fast" (perguntas objetivas
+// de código, snippets, debug). Llama 3.3 70B no Groq é rápido e bom em código.
+export const DEFAULT_CODER_MODEL_ID = 'llama-3.3-70b';
+
+// Modelo barato/rápido usado para sumarizar histórico antigo.
+// Gemini Flash tem janela grande e custo baixo.
+export const DEFAULT_SUMMARIZER_MODEL_ID = 'gemini-2.5-flash';
+
 export function listModels() {
   return Object.values(MODELS).map(({ id, label, provider }) => ({
     id,

@@ -12,6 +12,8 @@
     "@ai-sdk/groq": "^2.0.0",
     "@ai-sdk/mistral": "^2.0.33",
     "ai": "^5.0.0",
+    "better-sqlite3": "^12.10.0",
+    "cors": "^2.8.6",
     "dotenv": "^16.4.0",
     "express": "^4.19.0"
   }
