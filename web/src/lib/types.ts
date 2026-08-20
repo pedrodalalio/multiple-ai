@@ -6,8 +6,14 @@ export interface ModelInfo {
   provider: Provider;
 }
 
+export interface UnavailableModel extends ModelInfo {
+  reason: string;
+}
+
 export interface ModelsResponse {
   models: ModelInfo[];
+  /** Modelos conhecidos mas sem API key configurada no servidor. */
+  unavailable: UnavailableModel[];
   defaults: string[];
   default_aggregator: string;
 }
@@ -63,12 +69,17 @@ export interface StoredMessage {
   role: 'user' | 'assistant';
   content: string;
   created_at: number;
+  /** Turno que falhou ou foi cancelado — fica visível, mas fora do contexto. */
+  is_error: boolean;
   panel: PanelRun | null;
 }
 
 export interface ConversationDetail {
   conversation: ConversationSummary;
   messages: StoredMessage[];
+  has_more: boolean;
+  /** Cursor opaco para carregar a página anterior de mensagens. */
+  next_before: number | null;
 }
 
 // ---------- streaming/live shapes (in-memory while SSE is running) ----------
@@ -112,5 +123,7 @@ export interface LivePanel {
   classified?: string;
   similarity?: number | null;
   earlyExit?: boolean;
+  /** Turno interrompido antes da resposta final (cliente desconectou). */
+  cancelled?: boolean;
   skipR2Reason?: string | null;
 }

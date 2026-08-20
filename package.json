@@ -1,11 +1,14 @@
 {
-  "name": "multiple-ais",
+  "name": "many-ais",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "test": "node --test \"test/**/*.test.js\"",
+    "web": "pnpm --dir web dev",
+    "web:build": "pnpm --dir web build"
   },
   "dependencies": {
     "@ai-sdk/google": "^2.0.0",
@@ -16,5 +19,15 @@
     "cors": "^2.8.6",
     "dotenv": "^16.4.0",
     "express": "^4.19.0"
+  },
+  "packageManager": "pnpm@10.15.0+sha512.486ebc259d3e999a4e8691ce03b5cac4a71cbeca39372a9b762cb500cfdf0873e2cb16abe3d951b1ee2cf012503f027b98b6584e4df22524e0c7450d9ec7aa7b",
+  "description": "Painel de IAs: varios modelos rascunham, se criticam e um agregador sintetiza.",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3"
+    ]
   }
 }

@@ -74,6 +74,7 @@ export function Composer({ value, onChange, onSubmit, onCancel, isStreaming, dis
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={placeholder ?? 'Pergunte algo ao painel...'}
+          aria-label="Mensagem para o painel"
           disabled={disabled}
           className="min-h-[40px] max-h-[280px] flex-1"
         />
@@ -102,15 +103,17 @@ export function Composer({ value, onChange, onSubmit, onCancel, isStreaming, dis
         )}
       </div>
       <div className="mt-1.5 flex items-center justify-between px-3 text-[10px] text-muted-foreground">
-        <span>Enter para enviar · Shift+Enter quebra linha</span>
+        <span className="hidden sm:inline">Enter para enviar · Shift+Enter quebra linha</span>
+        <span className="sm:hidden" />
         {onModeChange && (
           <button
             type="button"
             onClick={cycleMode}
             disabled={isStreaming}
             title={MODE_HINT[currentMode]}
+            aria-label={`Modo de execução: ${MODE_LABEL[currentMode]}. ${MODE_HINT[currentMode]}. Clique para alternar.`}
             className={cn(
-              'flex items-center gap-1 rounded-full border border-border px-2 py-0.5 transition-colors hover:border-primary/60 hover:text-foreground',
+              'flex items-center gap-1 rounded-full border border-border px-2 py-0.5 transition-colors hover:border-primary/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50',
               currentMode !== 'auto' && 'border-primary/40 text-primary'
             )}
           >

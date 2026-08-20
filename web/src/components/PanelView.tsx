@@ -1,10 +1,10 @@
+import { memo, useState } from 'react';
 import { Sparkles, Loader2, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
-import { useState } from 'react';
 import { cn, formatMs } from '@/lib/utils';
 import type { LivePanel } from '@/lib/types';
 import { ModelColumn } from './ModelColumn';
 import { MarkdownBody } from './MarkdownBody';
-import { providerDotClass } from './ProviderBadge';
+import { providerDotClass } from '@/lib/providers';
 
 const MODE_LABELS: Record<string, string> = {
   single_fast: 'rápido (1 modelo)',
@@ -12,26 +12,50 @@ const MODE_LABELS: Record<string, string> = {
   panel_full: 'painel completo',
 };
 
-export function PanelView({ panel, defaultPanelOpen = true }: { panel: LivePanel; defaultPanelOpen?: boolean }) {
+function PanelViewImpl({
+  panel,
+  defaultPanelOpen = true,
+}: {
+  panel: LivePanel;
+  defaultPanelOpen?: boolean;
+}) {
   const [panelOpen, setPanelOpen] = useState(defaultPanelOpen);
   const isLive = panel.phase !== 'done' && panel.phase !== 'error';
   const hasSynth = panel.synthesis.length > 0 || panel.synthesisStatus === 'streaming';
-  const modeLabel = panel.mode ? MODE_LABELS[panel.mode] ?? panel.mode : null;
+  const modeLabel = panel.mode ? (MODE_LABELS[panel.mode] ?? panel.mode) : null;
 
   return (
     <div className="space-y-3">
-      {/* Phase indicator strip */}
-      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-        <PhasePill label="rascunhos" active={panel.phase === 'drafts'} done={panel.phase !== 'drafts' && panel.phase !== 'idle'} />
-        <span className="text-muted-foreground/40">→</span>
-        <PhasePill label="crítica + revisão" active={panel.phase === 'revisions'} done={panel.phase === 'synthesis' || panel.phase === 'done'} />
-        <span className="text-muted-foreground/40">→</span>
+      {/* Trilha de fases */}
+      <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+        <PhasePill
+          label="rascunhos"
+          active={panel.phase === 'drafts'}
+          done={panel.phase !== 'drafts' && panel.phase !== 'idle'}
+        />
+        <span aria-hidden className="text-muted-foreground/40">→</span>
+        <PhasePill
+          label="crítica + revisão"
+          active={panel.phase === 'revisions'}
+          done={panel.phase === 'synthesis' || panel.phase === 'done'}
+        />
+        <span aria-hidden className="text-muted-foreground/40">→</span>
         <PhasePill label="síntese" active={panel.phase === 'synthesis'} done={panel.phase === 'done'} />
+
         <div className="ml-auto flex items-center gap-2">
+          {panel.cancelled && (
+            <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] uppercase tracking-wider text-amber-400/90">
+              cancelado
+            </span>
+          )}
           {modeLabel && (
             <span
               className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] uppercase tracking-wider"
-              title={panel.similarity != null ? `similaridade entre rascunhos: ${panel.similarity.toFixed(2)}${panel.earlyExit ? ' (early-exit)' : ''}` : undefined}
+              title={
+                panel.similarity != null
+                  ? `similaridade entre rascunhos: ${panel.similarity.toFixed(2)}${panel.earlyExit ? ' (early-exit)' : ''}`
+                  : undefined
+              }
             >
               {modeLabel}
               {panel.earlyExit && ' · early-exit'}
@@ -41,8 +65,10 @@ export function PanelView({ panel, defaultPanelOpen = true }: { panel: LivePanel
             <span className="font-mono text-[10px]">total {formatMs(panel.msTotal)}</span>
           )}
           <button
+            type="button"
             onClick={() => setPanelOpen((o) => !o)}
-            className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+            aria-expanded={panelOpen}
+            className="flex items-center gap-1 rounded text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {panelOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
             painel
@@ -50,12 +76,13 @@ export function PanelView({ panel, defaultPanelOpen = true }: { panel: LivePanel
         </div>
       </div>
 
-      {/* Multi-model column grid */}
+      {/* Colunas dos modelos — auto-fit empilha sozinho em telas estreitas,
+          em vez de espremer N colunas fixas num celular. */}
       {panelOpen && (
         <div
-          className="grid gap-3 animate-fade-in"
+          className="grid animate-fade-in gap-3"
           style={{
-            gridTemplateColumns: `repeat(${panel.models.length}, minmax(0, 1fr))`,
+            gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 15rem), 1fr))',
             minHeight: '280px',
           }}
         >
@@ -65,16 +92,16 @@ export function PanelView({ panel, defaultPanelOpen = true }: { panel: LivePanel
         </div>
       )}
 
-      {/* Synthesis */}
+      {/* Síntese */}
       <div
         className={cn(
-          'rounded-xl border bg-gradient-to-br from-primary/10 via-card to-card p-5 transition-all',
+          'rounded-xl border bg-gradient-to-br from-primary/10 via-card to-card p-4 transition-all sm:p-5',
           hasSynth || isLive
             ? 'border-primary/40 shadow-[0_0_60px_-30px] shadow-primary/50'
-            : 'border-border'
+            : 'border-border',
         )}
       >
-        <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-primary">
             {panel.synthesisStatus === 'streaming' ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -84,7 +111,12 @@ export function PanelView({ panel, defaultPanelOpen = true }: { panel: LivePanel
             síntese
             {panel.synthesisModel && (
               <span className="ml-2 flex items-center gap-1.5 text-[10px] font-normal normal-case text-muted-foreground">
-                <span className={cn('h-1.5 w-1.5 rounded-full', providerDotClass(modelProvider(panel, panel.synthesisModel)))} />
+                <span
+                  className={cn(
+                    'h-1.5 w-1.5 rounded-full',
+                    providerDotClass(modelProvider(panel, panel.synthesisModel)),
+                  )}
+                />
                 via {modelLabel(panel, panel.synthesisModel)}
               </span>
             )}
@@ -95,19 +127,17 @@ export function PanelView({ panel, defaultPanelOpen = true }: { panel: LivePanel
             </span>
           )}
         </div>
+
         {panel.synthesisError && !panel.synthesis ? (
           <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive-foreground">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-            <div>
+            <div className="min-w-0">
               <p className="font-medium">Síntese falhou</p>
-              <p className="text-xs text-destructive-foreground/80">{panel.synthesisError}</p>
+              <p className="break-words text-xs text-destructive-foreground/80">{panel.synthesisError}</p>
             </div>
           </div>
         ) : (
-          <MarkdownBody
-            className="prose-base"
-            streaming={panel.synthesisStatus === 'streaming'}
-          >
+          <MarkdownBody streaming={panel.synthesisStatus === 'streaming'}>
             {panel.synthesis || (panel.phase === 'synthesis' ? '' : '...')}
           </MarkdownBody>
         )}
@@ -115,6 +145,10 @@ export function PanelView({ panel, defaultPanelOpen = true }: { panel: LivePanel
     </div>
   );
 }
+
+// Turnos já persistidos nunca mudam; sem memo eles rerenderizam a cada token
+// do turno em andamento.
+export const PanelView = memo(PanelViewImpl);
 
 function PhasePill({ label, active, done }: { label: string; active: boolean; done: boolean }) {
   return (
@@ -125,7 +159,7 @@ function PhasePill({ label, active, done }: { label: string; active: boolean; do
           ? 'bg-primary/15 text-primary animate-pulse-soft'
           : done
             ? 'bg-emerald-500/10 text-emerald-400'
-            : 'bg-muted text-muted-foreground'
+            : 'bg-muted text-muted-foreground',
       )}
     >
       {active && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
@@ -135,10 +169,9 @@ function PhasePill({ label, active, done }: { label: string; active: boolean; do
 }
 
 function modelLabel(panel: LivePanel, modelId: string): string {
-  const m = panel.models.find((x) => x.model === modelId);
-  return m?.label ?? modelId;
+  return panel.models.find((x) => x.model === modelId)?.label ?? modelId;
 }
+
 function modelProvider(panel: LivePanel, modelId: string): string {
-  const m = panel.models.find((x) => x.model === modelId);
-  return m?.provider ?? '';
+  return panel.models.find((x) => x.model === modelId)?.provider ?? '';
 }

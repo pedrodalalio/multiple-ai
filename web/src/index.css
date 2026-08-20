@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -11,6 +9,11 @@
 
     --card: 240 8% 8%;
     --card-foreground: 240 5% 92%;
+
+    /* Fundo dos dropdowns/popovers. Sem isto, `bg-popover` não gera CSS
+       nenhum e os menus flutuantes ficam transparentes. */
+    --popover: 240 9% 10%;
+    --popover-foreground: 240 5% 92%;
 
     --primary: 270 90% 70%;
     --primary-foreground: 240 10% 3%;

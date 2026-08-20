@@ -1,12 +1,21 @@
 node_modules
-.next
+web/node_modules
+web/dist
+dist
+
+# Locks de npm — o projeto usa pnpm (ver "packageManager" no package.json).
+package-lock.json
+yarn.lock
+
 .env
 .env.local
-*.log
-.DS_Store
+web/.env
+web/.env.local
+
 data.db
 data.db-journal
 data.db-wal
 data.db-shm
-web/dist
-web/node_modules
+
+*.log
+.DS_Store

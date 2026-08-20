@@ -5,27 +5,51 @@ import type {
 } from './types';
 
 const API = '/api';
+// Definido só quando o backend roda com API_TOKEN. Em localhost fica vazio.
+const TOKEN = import.meta.env.VITE_API_TOKEN as string | undefined;
 
-export async function fetchModels(): Promise<ModelsResponse> {
-  const r = await fetch(`${API}/models`);
-  if (!r.ok) throw new Error('failed to load models');
-  return r.json();
+function authHeaders(extra?: HeadersInit): HeadersInit {
+  return TOKEN ? { ...extra, Authorization: `Bearer ${TOKEN}` } : { ...extra };
 }
 
-export async function fetchConversations(): Promise<{ conversations: ConversationSummary[] }> {
-  const r = await fetch(`${API}/conversations`);
-  if (!r.ok) throw new Error('failed to load conversations');
-  return r.json();
+/** Extrai a mensagem de erro do backend em vez de mostrar só o status. */
+async function failure(res: Response, fallback: string): Promise<Error> {
+  try {
+    const body = await res.json();
+    if (body?.error) return new Error(body.error);
+  } catch {
+    /* resposta sem json */
+  }
+  return new Error(`${fallback} (HTTP ${res.status})`);
 }
 
-export async function fetchConversation(id: string): Promise<ConversationDetail> {
-  const r = await fetch(`${API}/conversations/${id}`);
-  if (!r.ok) throw new Error('conversation not found');
-  return r.json();
+async function getJson<T>(path: string, fallback: string): Promise<T> {
+  const res = await fetch(`${API}${path}`, { headers: authHeaders() });
+  if (!res.ok) throw await failure(res, fallback);
+  return res.json() as Promise<T>;
+}
+
+export function fetchModels(): Promise<ModelsResponse> {
+  return getJson<ModelsResponse>('/models', 'não foi possível carregar os modelos');
+}
+
+export function fetchConversations(): Promise<{ conversations: ConversationSummary[] }> {
+  return getJson('/conversations', 'não foi possível carregar as conversas');
+}
+
+export function fetchConversation(id: string): Promise<ConversationDetail> {
+  return getJson<ConversationDetail>(
+    `/conversations/${encodeURIComponent(id)}`,
+    'conversa não encontrada',
+  );
 }
 
 export async function deleteConversation(id: string): Promise<void> {
-  await fetch(`${API}/conversations/${id}`, { method: 'DELETE' });
+  const res = await fetch(`${API}/conversations/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw await failure(res, 'não foi possível excluir a conversa');
 }
 
 // ---------- SSE streaming ----------
@@ -44,12 +68,16 @@ export type SSEEvent =
   | { type: 'similarity'; data: { value: number; skipR2: boolean; earlyExit: boolean } }
   | { type: 'draft_start'; data: { model: string } }
   | { type: 'draft_delta'; data: { model: string; delta: string } }
+  // *_reset: o backend vai retentar e reemitir o texto desta tentativa do zero.
+  | { type: 'draft_reset'; data: { model: string } }
   | { type: 'draft_done'; data: { model: string; ms: number; tokens_input: number | null; tokens_output: number | null; erro: string | null; texto: string } }
   | { type: 'revision_start'; data: { model: string } }
   | { type: 'revision_delta'; data: { model: string; delta: string } }
+  | { type: 'revision_reset'; data: { model: string } }
   | { type: 'revision_done'; data: { model: string; ms: number; erro: string | null; critica: string; resposta_revisada: string; texto_bruto: string; skipped?: boolean } }
   | { type: 'synthesis_start'; data: { model: string } }
   | { type: 'synthesis_delta'; data: { model: string; delta: string } }
+  | { type: 'synthesis_reset'; data: { model: string } }
   | { type: 'synthesis_done'; data: { model: string | null; ms?: number; erro: string | null; texto: string; tokens_input?: number; tokens_output?: number; early_exit?: boolean } }
   | { type: 'synthesis_fallback'; data: { model: string; erro: string } }
   | { type: 'done'; data: { ms_total: number; assistant_message_id: string | null; synthesis_error: string | null } }
@@ -62,43 +90,49 @@ export async function streamChat(
 ): Promise<void> {
   const res = await fetch(`${API}/chat/stream`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(req),
     signal,
   });
   if (!res.ok || !res.body) {
-    const text = await res.text().catch(() => res.statusText);
-    throw new Error(`chat failed: ${res.status} ${text}`);
+    throw await failure(res, 'a requisição de chat falhou');
   }
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
 
-    // SSE messages are separated by blank lines
-    let sep;
-    while ((sep = buffer.indexOf('\n\n')) !== -1) {
-      const chunk = buffer.slice(0, sep);
-      buffer = buffer.slice(sep + 2);
-      const lines = chunk.split('\n');
-      let eventName = 'message';
-      const dataLines: string[] = [];
-      for (const line of lines) {
-        if (line.startsWith('event:')) eventName = line.slice(6).trim();
-        else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart());
-      }
-      if (dataLines.length === 0) continue;
-      try {
-        const data = JSON.parse(dataLines.join('\n'));
-        onEvent({ type: eventName as SSEEvent['type'], data } as SSEEvent);
-      } catch (e) {
-        console.warn('failed to parse SSE event', eventName, e);
+      // Mensagens SSE são separadas por linha em branco.
+      let sep: number;
+      while ((sep = buffer.indexOf('\n\n')) !== -1) {
+        const chunk = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+
+        let eventName = 'message';
+        const dataLines: string[] = [];
+        for (const line of chunk.split('\n')) {
+          // ': ping' é o heartbeat do servidor — comentário, não evento.
+          if (line.startsWith(':')) continue;
+          if (line.startsWith('event:')) eventName = line.slice(6).trim();
+          else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart());
+        }
+        if (dataLines.length === 0) continue;
+
+        try {
+          const data = JSON.parse(dataLines.join('\n'));
+          onEvent({ type: eventName as SSEEvent['type'], data } as SSEEvent);
+        } catch (e) {
+          console.warn('falha ao parsear evento SSE', eventName, e);
+        }
       }
     }
+  } finally {
+    reader.cancel().catch(() => {});
   }
 }
